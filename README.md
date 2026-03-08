@@ -1,69 +1,37 @@
-# Code
+# Heat equation.
 
-This code is running Fencisx on colab.
-When you want to use Fenicsx, writhe magic world %%fenicsx --np
+First, this is simulating Heat equation.
 
-Behind np, write count of pararell compute.
-Behind that, write -- time to print runtime.
+$$
+u_t=\nabla^2u+f $$
 
-# --------------------------------------------------
-# 1️⃣ Mount Google Drive (optional, for cache)
-# --------------------------------------------------
-from google.colab import drive
-import os
+$$
+ u=u_0=exp(-a(x^2+y^2))\\ at\\ t=0 $$
 
-if not os.path.ismount("/content/drive"):
-    drive.mount("/content/drive")
-else:
-    print("📦 Google Drive already mounted")
+$$
+\\ u=u_D \\ at \\ \partial \Omega
+$$
 
-# --------------------------------------------------
-# 2️⃣ Clone fenicsx-colab repository (idempotent)
-# --------------------------------------------------
-from pathlib import Path
-import subprocess
+To compute this PDE, we need to time-variative.
 
-REPO_URL = "https://github.com/seoultechpse/fenicsx-colab.git"
-ROOT = Path("/content")
-REPO_DIR = ROOT / "fenicsx-colab"
+$$
+(\frac{\partial u}{\partial t})^{n+1}=\frac{u^{n+1}-u^n}{\Delta t} $$
 
-def run(cmd):
-    subprocess.run(cmd, check=True)
+like this. Then,
 
-if not REPO_DIR.exists():
-    print("📥 Cloning fenicsx-colab...")
-    run(["git", "clone", REPO_URL, str(REPO_DIR)])
-elif not (REPO_DIR / ".git").exists():
-    raise RuntimeError("Directory exists but is not a git repository")
-else:
-    print("📦 Repository already exists — skipping clone")
+$$
+\\ \frac{u^{n+1}-u^n}{\Delta t}=\nabla^2 u^{n+1}+f^{n+1}$$
+$$
+\\ u^{n+1}=u^n+\Delta t \nabla^2u^{n+1}+\Delta t f^{n+1}
+$$
 
-# --------------------------------------------------
-# 3️⃣ Run setup_fenicsx.py IN THIS KERNEL (CRITICAL)
-# --------------------------------------------------
-print("🚀 Running setup_fenicsx.py in current kernel")
+Change Week fomulation. (v is 0 at boundary conditon.)
 
-# ⚙️ Configuration
-USE_COMPLEX = False  # <--- Set True ONLY if you need complex PETSc
-USE_CLEAN = False    # <--- Set True to remove existing environment
-
-# Build options
-opts = []
-if USE_COMPLEX:
-    opts.append("--complex")
-if USE_CLEAN:
-    opts.append("--clean")
-
-opts_str = " ".join(opts) if opts else ""
-
-get_ipython().run_line_magic(
-    "run", f"{REPO_DIR / 'setup_fenicsx.py'} {opts_str}"
-)
-
-# --------------------------------------------------
-# 4️⃣ Sanity check
-# --------------------------------------------------
-try:
-    get_ipython().run_cell_magic('fenicsx', '--info -np 4', '')
-except Exception as e:
-    print("⚠️ %%fenicsx magic not found:", e)
+$$
+\int_{\Omega}vu^{n+1}dx-\int_{\Omega}\Delta t \; v\nabla^2u^{n+1}dx=\int_{\Omega}v(u^n+\Delta t f^{n+1})dx$$
+$$
+\\ \int_{\Omega}(vu^{n+1}+\Delta t \nabla v \; \nabla u^{n+1})dx=\int_{\Omega}v(u^n+\Delta t f^{n+1})$$
+$$
+a(u,v)=\int_{\Omega}(vu^{n+1}+\Delta t \nabla v \; \nabla u^{n+1})dx$$
+$$
+L(v)=\int_{\Omega}v(u^n+\Delta t f^{n+1})$$
