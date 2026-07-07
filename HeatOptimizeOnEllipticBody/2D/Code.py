@@ -1,10 +1,11 @@
+%%fenicsx -np 4
 
 import numpy as np
 import matplotlib.pyplot as plt
 from mpi4py import MPI
 
 import dolfinx
-import dolfinx.fem 
+import dolfinx.fem
 from dolfinx.fem import (Constant,
                          functionspace,
                          Function)
@@ -19,7 +20,7 @@ from ufl import (TrialFunction,
 import gmsh
 import dolfinx.io.gmsh as gmshio
 
-
+print('a')
 gmsh.initialize()
 gdim=2
 
@@ -31,14 +32,14 @@ if MPI.COMM_WORLD.rank==0:
   shell=obj[0][1]
   body=obj[1][1]
 
- 
+
 
 
   gmsh.model.addPhysicalGroup(2,[body],1,'body')
   gmsh.model.addPhysicalGroup(2,[shell],2,'shell')
 
-  gmsh.option.setNumber("Mesh.MeshSizeMax",0.01)
-  gmsh.option.setNumber("Mesh.MeshSizeMin",0.005)
+  gmsh.option.setNumber("Mesh.MeshSizeMax",0.1)
+  gmsh.option.setNumber("Mesh.MeshSizeMin",0.05)
   gmsh.model.mesh.generate(2)
 
 
@@ -72,12 +73,13 @@ with XDMFFile(MPI.COMM_WORLD, "2Dmesh.xdmf", "w") as xdmf:
 Q=functionspace(domain,('CG',1))
 QQ=functionspace(domain,('DG',0))
 alp=Function(QQ)
-
+print(f'd')
 shell_tags=cell_tags.find(2)
 body_tags=cell_tags.find(1)
 
-alp.x.array[shell_tags]=100
-alp.x.array[body_tags]=10
+alp.x.array[shell_tags]=1e-7
+alp.x.array[body_tags]=1.2e-5
+j=Constant(domain,dolfinx.default_scalar_type(1.96e3))
 
 #dx=Measure("dx",domain=domain,subdomain_data=cell_tags)
 
@@ -85,6 +87,7 @@ alp.x.array[body_tags]=10
 u=TrialFunction(Q)
 v=TestFunction(Q)
 un=Function(Q)
+un.name='temperature'
 
 
 # 초기온도 300K
@@ -92,25 +95,30 @@ un.x.array[:]=300.0
 q=Function(Q)
 q.x.array[:]=100
 
-T=100
+
 dt=1
 
 
 a=v*u*dx+dt*alp*dot(grad(v),grad(u))*dx
-L=v*un*dx+dt*q*v*ds(3)
+L=v*un*dx+dt*(q/j)*v*ds(3)
 
 
 from dolfinx.fem.petsc import LinearProblem
 from dolfinx.io import XDMFFile
 
 uh = Function(Q)
+uh.name='temperature'
 
-problem = LinearProblem(a, L, u=uh,petsc_options_prefix='heat')
+problem = LinearProblem(a, L, u=uh,petsc_options_prefix='heat',
+                        petsc_options={"ksp_type": "preonly", "pc_type": "lu"})
 
 t = 0.0
-t_end = 100.0
+t_end = 3600*3
 
-with XDMFFile(MPI.COMM_WORLD, "temperature.xdmf", "w") as xdmf:
+tt=[]
+uu=[]
+
+with XDMFFile(MPI.COMM_WORLD, "temperature3.xdmf", "w") as xdmf:
 
     xdmf.write_mesh(domain)
     xdmf.write_function(un, t)
@@ -118,11 +126,25 @@ with XDMFFile(MPI.COMM_WORLD, "temperature.xdmf", "w") as xdmf:
     while t < t_end:
 
         uh = problem.solve()
-        print(f'진행중..{t/t_end}%')
+        #print(f'*',end='')
+
+        tt.append(t)
+        uu.append(np.min(uh.x.array))
         t += dt
 
-  
+
+
 
         xdmf.write_function(uh, t)
 
         un.x.array[:] = uh.x.array
+
+if MPI.COMM_WORLD.rank==0:
+  tt=np.array(tt)
+  uu=np.array(uu)
+  print(tt)
+  print(uu)
+  plt.figure()
+  plt.plot(tt,uu)
+  plt.savefig('plot.png')
+print('s')
