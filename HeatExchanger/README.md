@@ -16,14 +16,7 @@ $$
 \rho \frac{\partial u}{\partial t}+\rho (u \cdot \nabla )u=-\nabla P +\mu \nabla ^2 u  
 $$
 
-Tayler-Hood discretization for calculate.
+Crank-Nicolson discretization for calculate.
 
 $$
-\rho \left(
-\frac{u^{*} -u^n}{\delta t}
-+\left(\frac{3}{2} u^n -\frac{1}{2} u^{n-1}\right)
-\cdot \frac{1}{2}\nabla (u^{*}+u^n)
-\right)
--\frac{1}{2}\mu \nabla^2 (u^{*}+u^n)
-+\nabla P^{\frac{n-1}{2}} =0
-$$
+\rho \left(\frac{u^{*} -u^n}{\delta t}+\left(\frac{3}{2} u^n -\frac{1}{2} u^{n-1}\right)\cdot \frac{1}{2}\nabla (u^{*}+u^n)\right)-\frac{1}{2}\mu \nabla^2 (u^{*}+u^n)+\nabla P^{\frac{n-1}{2}}=0 $$
