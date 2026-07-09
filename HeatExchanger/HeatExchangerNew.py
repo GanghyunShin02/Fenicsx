@@ -7,6 +7,7 @@ from petsc4py import PETSc
 import gmsh
 from dolfinx import fem
 from dolfinx import mesh,io
+from dolfinx import default_scalar_type
 from dolfinx.io import VTXWriter,gmsh as gmshio
 from dolfinx.mesh import (locate_entities_boundary,
                             create_submesh)
@@ -15,11 +16,14 @@ from ufl import (grad,
                  dot,
                  inner,
                  TrialFunction,
-                 TestFunction)
+                 TestFunction,
+                 Constant)
 from dolfinx.fem import (Function,
                          functionspace,
                          dirichletbc,
                          locate_dofs_topological)
+
+from CoolProp.CoolProp import PropsSI
 
 gmsh.initialize()
 
@@ -105,8 +109,6 @@ with io.XDMFFile(domain.comm, "heat_exchanger3D_geometry.xdmf", "w") as xdmf:
 
 # 경계조건
 
-u_nonslip=np.array((0,0,0),dtype=dolfinx.default_scalar_type)
-
 
 tdim = domain.topology.dim
 fdim = tdim - 1
@@ -165,7 +167,7 @@ def inlet_face(x):
 inlet_facets = locate_entities_boundary(inflow_submesh, fdim, inlet_face)
 inlet_dofs   = locate_dofs_topological(Vu_in, fdim, inlet_facets)
 
-U_inlet = 1  # 유입 속도 크기 (예시)
+U_inlet = 1  # 유입 속도 크기 
 u_inlet_val = np.array([U_inlet, 0.0, 0.0], dtype=default_scalar_type)
 bc_inlet = dirichletbc(u_inlet_val, inlet_dofs, Vu_in)
 
@@ -182,6 +184,84 @@ U_outlet=10
 u_outlet_val=np.array([U_outlet,0.0,0.0],dtype=default_scalar_type)
 bc_outlet=dirichletbc(u_outlet_val,outlet_dofs,Vu_out)
 
+# 압력경계조건
+def outlet_faceP(x):
+    return np.isclose(x[0], x0 + L, atol=1e-6)  # inflow의 경우
+
+inflow_outlet_facetsP = locate_entities_boundary(inflow_submesh, fdim, outlet_face)
+inflow_outlet_dofsP = locate_dofs_topological(VP_in, fdim, inflow_outlet_facetsP)
+
+p_outlet_val = default_scalar_type(0.0)
+bc_outlet_p = dirichletbc(p_outlet_val, inflow_outlet_dofsP, VP_in)
+
+def outflow_outlet_faceP(x):
+    return np.isclose(x[0], x0 , atol=1e-6)  # outflow의 경우
+
+outflow_outlet_facetsP = locate_entities_boundary(outflow_submesh, fdim, outflow_outlet_faceP)
+outflow_outlet_dofsP = locate_dofs_topological(VP_out, fdim, outflow_outlet_facetsP)    
+
+P_outflow_outlet_val = default_scalar_type(0.0)
+bc_outflow_outlet_P = dirichletbc(P_outflow_outlet_val, outflow_outlet_dofsP, VP_out)
 
 
 
+# 초기온도
+
+V_T=functionspace(domain,("Lagrange",1))
+
+T_init_inpipe_fluid  = 500.0  # 내관유체 (수증기)
+T_init_outpipe_fluid = 300.0  # 외관유체
+T_init_solid = 300.0          # 관(내관+외관 solid) 전체
+
+T_n = Function(V_T)   # 전체 domain 온도장
+
+# cell_marker: 1=inflow(내관유체), 2=inpipe(내관벽), 3=outflow(외관유체), 4=outpipe(외관벽)
+
+inflow_cells  = cell_marker.find(1)
+inpipe_cells  = cell_marker.find(2)
+outflow_cells = cell_marker.find(3)
+outpipe_cells = cell_marker.find(4)
+
+inflow_dofs  = fem.locate_dofs_topological(V_T, tdim, inflow_cells)
+inpipe_dofs  = fem.locate_dofs_topological(V_T, tdim, inpipe_cells)
+outflow_dofs = fem.locate_dofs_topological(V_T, tdim, outflow_cells)
+outpipe_dofs = fem.locate_dofs_topological(V_T, tdim, outpipe_cells)
+
+T_n.x.array[inflow_dofs]  = T_init_inpipe_fluid
+T_n.x.array[inpipe_dofs]  = T_init_solid
+T_n.x.array[outflow_dofs] = T_init_outpipe_fluid
+T_n.x.array[outpipe_dofs] = T_init_solid
+
+T_n.x.scatter_forward()  # MPI 병렬 환경 필수
+
+
+# 내관은 u,외관은 U
+dt=Constant(1,dtype=default_scalar_type)
+
+u=TrialFunction(Vu_in)
+v=TestFunction(Vu_in)
+un=Function(Vu_in)
+un1=Function(Vu_in)
+
+import ufl
+
+# 상수
+R_specific = 461.5     # J/(kg·K), 수증기 비기체상수
+P_steam = 101325.0     # Pa, 운전 압력 (실제 값으로 수정)
+
+mu_ref_steam = 1.12e-5  # Pa·s
+T_ref_steam  = 350.0    # K
+S_steam      = 1064.0   # Sutherland 상수 (수증기)
+
+def rho_steam(T):
+    return P_steam / (R_specific * T)
+
+def mu_steam(T):
+    return mu_ref_steam * (T/T_ref_steam)**1.5 * (T_ref_steam + S_steam) / (T + S_steam)
+
+def rho_water(T):
+    return 1000.0 - 0.0178 * (T - 277.0)**1.7   # kg/m^3
+
+def mu_water(T):
+    A, B, C = 2.414e-5, 247.8, 140.0
+    return A * 10**(B / (T - C))                 # Pa·s
