@@ -10,7 +10,7 @@
 
 #### $\S$ 2. Proof momentum balance
 
-N-S equation
+N-S equation (No gravity effect)
 
 $$
 \rho \frac{\partial u}{\partial t}+\rho (u \cdot \nabla )u=-\nabla P +\mu \nabla ^2 u  
