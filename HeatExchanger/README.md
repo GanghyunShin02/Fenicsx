@@ -1,14 +1,28 @@
 ## Double pipe heat exchanger
 
-1. Create domain
-2. Proof momentum balance
-3. Proof energy balace
+1. Proof momentum balance
+2. Proof energy balacne
+3. Proof mass balace
 
-#### $\S$ 1. Create domain
+#### $\S$ 1.1. Create domain
 
 ![ss](images/3Dmesh.png)
 
-#### $\S$ 2. Proof momentum balance
+
+#### $\S$ 1.2. Pitting properties by CoolProp
+
+Find properties to approximate as polynomial function of Temperature.
+
+From water's boiling point to critical point plot density and viscosity.
+
+![s](images/steam_density.png)
+![s](images/steam_viscosity.png)
+
+
+
+
+
+#### $\S$ 1.2. Calculate
 
 N-S equation (No gravity effect)
 
@@ -20,3 +34,6 @@ Crank-Nicolson discretization for calculate.
 
 $$
 \rho \left(\frac{u^{*} -u^n}{\delta t}+\left(\frac{3}{2} u^n -\frac{1}{2} u^{n-1}\right)\cdot \frac{1}{2}\nabla (u^{*}+u^n)\right)-\frac{1}{2}\mu \nabla^2 (u^{*}+u^n)+\nabla P^{\frac{n-1}{2}}=0 $$
+
+
+#### $\S$ 
