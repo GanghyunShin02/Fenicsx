@@ -8,7 +8,7 @@ import gmsh
 from dolfinx import fem
 from dolfinx import mesh,io
 from dolfinx import default_scalar_type
-from dolfinx.io import VTXWriter,gmsh as gmshio
+from dolfinx.io import VTXWriter,XDMFFile,gmsh as gmshio
 from dolfinx.mesh import (locate_entities_boundary,
                             create_submesh)
 import ufl
@@ -17,17 +17,23 @@ from ufl import (grad,
                  inner,
                  TrialFunction,
                  TestFunction,
-
                  dx, lhs,
                  nabla_grad,
-                 div, rhs)
-from dolfinx.fem import (Function, assemble_matrix, create_matrix, create_vector,
+                 div, rhs,
+                 sym)
+from dolfinx.fem import (Function, 
                          functionspace,
                          dirichletbc,
                          locate_dofs_topological,
                          form,
                          Constant,
                          extract_function_spaces)
+from dolfinx.fem.petsc import (assemble_matrix,
+                               assemble_vector,
+                               apply_lifting, 
+                               create_matrix, 
+                               create_vector,
+                               set_bc)
 
 from CoolProp.CoolProp import PropsSI
 from pathlib import Path
@@ -265,7 +271,7 @@ def mu_water(T):
 
 
 # 내관은 u,외관은 U
-tstep=1
+tstep=0.1
 dt_in=Constant(inflow_submesh,default_scalar_type(tstep))
 dt_out=Constant(outflow_submesh,default_scalar_type(tstep))
 
@@ -296,6 +302,11 @@ PHI=Function(VP_out)
 
 #속도추정
 
+def epsilon(v): #응력텐서
+    return sym(grad(v))
+
+
+
 print("rho type:", type(rho), "rho shape:", rho.ufl_shape if hasattr(rho, 'ufl_shape') else "NO SHAPE ATTR")
 print("dt_in type:", type(dt_in))
 
@@ -308,8 +319,8 @@ F1+=rho*inner(
     ),
     v
 )*dx
-F1+=0.5*mu*inner(grad(v),
-               grad(u+un))*dx
+F1+=2*0.5*mu*inner(epsilon(v),
+               epsilon(u+un))*dx
 F1-=dot(p_,div(v))*dx
 
 a1=form(lhs(F1))
@@ -323,9 +334,10 @@ A2=assemble_matrix(a2,bcs=[bc_outlet_p])
 A2.assemble()
 L2=create_vector(extract_function_spaces(l2))
 
-a3=form(dot(u,v)*dx)
+a3=form(rho*dot(u,v)*dx)
 l3=form(rho*dot(us,v)*dx-dt_in*dot(nabla_grad(phi),v)*dx)
 A3=assemble_matrix(a3)
+A3.assemble()
 L3=create_vector(extract_function_spaces(l3))
 
 
@@ -338,8 +350,8 @@ F11+=RHO*inner(
     ),
     V
 )*dx
-F11+=0.5*MU*inner(grad(V),
-                  grad(U+Un))*dx
+F11+=2*0.5*MU*inner(epsilon(V),
+                  epsilon(U+Un))*dx
 F11-=dot(P_,div(V))*dx
 
 a11=form(lhs(F11))
@@ -353,16 +365,17 @@ A22=assemble_matrix(a22,bcs=[bc_outflow_outlet_P])
 A22.assemble()
 L22=create_vector(extract_function_spaces(l22))
 
-a33=form(dot(U,V)*dx)
+a33=form(RHO*dot(U,V)*dx)
 l33=form(RHO*dot(Us,V)*dx-dt_out*dot(nabla_grad(PHI),V)*dx)
 A33=assemble_matrix(a33)
+A33.assemble()
 L33=create_vector(extract_function_spaces(l33))
 
 
 # Solver for step 1
 solver1 = PETSc.KSP().create(inflow_submesh.comm)
 solver1.setOperators(A1)
-solver1.setType(PETSc.KSP.Type.BCGS)
+solver1.setType(PETSc.KSP.Type.GMRES)
 pc1 = solver1.getPC()
 pc1.setType(PETSc.PC.Type.JACOBI)
 
@@ -384,7 +397,7 @@ pc3.setType(PETSc.PC.Type.SOR)
 # Solver for step 1
 solver11 = PETSc.KSP().create(outflow_submesh.comm)
 solver11.setOperators(A11)
-solver11.setType(PETSc.KSP.Type.BCGS)
+solver11.setType(PETSc.KSP.Type.GMRES)
 pc11 = solver11.getPC()
 pc11.setType(PETSc.PC.Type.JACOBI)
 
@@ -404,98 +417,111 @@ pc33 = solver33.getPC()
 pc33.setType(PETSc.PC.Type.SOR)
 
 # --- VTX 출력 준비 ---
-vtx_u_in  = VTXWriter(inflow_submesh.comm,  "results/u_inflow.bp",  [un],  engine="BP4")
-vtx_p_in  = VTXWriter(inflow_submesh.comm,  "results/p_inflow.bp",  [p_],  engine="BP4")
-vtx_u_out = VTXWriter(outflow_submesh.comm, "results/u_outflow.bp", [Un],  engine="BP4")
-vtx_p_out = VTXWriter(outflow_submesh.comm, "results/p_outflow.bp", [P_],  engine="BP4")
+vtx_u_in  = VTXWriter(inflow_submesh.comm,  "results/4u_inflow1.bp",  [un],  engine="BP4")
+vtx_p_in  = VTXWriter(inflow_submesh.comm,  "results/4p_inflow1.bp",  [p_],  engine="BP4")
+vtx_u_out = VTXWriter(outflow_submesh.comm, "results/4u_outflow1.bp", [Un],  engine="BP4")
+vtx_p_out = VTXWriter(outflow_submesh.comm, "results/4p_outflow1.bp", [P_],  engine="BP4")
 
 # --- 시간 루프 ---
 t = 0.0
-T_end = 5.0
+T_end = 1
 num_steps = int(T_end / tstep)
+
+print("dt_in value:", dt_in.value)
+print("dt_out value:", dt_out.value)
+
 
 for step in range(num_steps):
     t += tstep
-
     print(f'{100*step/num_steps:.1f}% 완료, t={t:.3f}')
 
-    # ===== inflow (내관유체) =====
+    # ===== inflow =====
+    A1.zeroEntries()
+    assemble_matrix(A1, a1, bcs=[bc_inflow_wall, bc_inlet])
+    A1.assemble()
+
+    A11.zeroEntries()
+    assemble_matrix(A11, a11, bcs=[bc_outflow_wall, bc_outlet])
+    A11.assemble()
+
     # Step 1: 속도 추정 (us)
     with L1.localForm() as loc:
         loc.set(0)
-    fem.petsc.assemble_vector(L1, l1)
-    fem.petsc.apply_lifting(L1, [a1], [[bc_inflow_wall, bc_inlet]])
+    assemble_vector(L1, l1)
+    apply_lifting(L1, [a1], [[bc_inflow_wall, bc_inlet]])
     L1.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
-    fem.petsc.set_bc(L1, [bc_inflow_wall, bc_inlet])
+    set_bc(L1, [bc_inflow_wall, bc_inlet])
     solver1.solve(L1, us.x.petsc_vec)
     us.x.scatter_forward()
 
     # Step 2: 압력 보정 (phi)
     with L2.localForm() as loc:
         loc.set(0)
-    fem.petsc.assemble_vector(L2, l2)
-    fem.petsc.apply_lifting(L2, [a2], [[bc_outlet_p]])
+    assemble_vector(L2, l2)
+    apply_lifting(L2, [a2], [[bc_outlet_p]])
     L2.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
-    fem.petsc.set_bc(L2, [bc_outlet_p])
+    set_bc(L2, [bc_outlet_p])
     solver2.solve(L2, phi.x.petsc_vec)
     phi.x.scatter_forward()
 
-    p_.x.array[:] = p_.x.array + phi.x.array
+    p_.x.array[:] += phi.x.array
     p_.x.scatter_forward()
 
-    # Step 3: 속도 보정 (un1 <- un <- 새 값)
+    # Step 3: 속도 보정
     with L3.localForm() as loc:
         loc.set(0)
-    fem.petsc.assemble_vector(L3, l3)
+    assemble_vector(L3, l3)
     L3.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     solver3.solve(L3, un.x.petsc_vec)
     un.x.scatter_forward()
 
-    un1.x.array[:] = un.x.array  # 다음 스텝을 위해 이전 값 저장 (원래는 순서 주의 필요)
+    un1.x.array[:] = un.x.array
 
-    # ===== outflow (외관유체) =====
+    # ===== outflow =====
     with L11.localForm() as loc:
         loc.set(0)
-    fem.petsc.assemble_vector(L11, l11)
-    fem.petsc.apply_lifting(L11, [a11], [[bc_outflow_wall, bc_outlet]])
+    assemble_vector(L11, l11)
+    apply_lifting(L11, [a11], [[bc_outflow_wall, bc_outlet]])
     L11.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
-    fem.petsc.set_bc(L11, [bc_outflow_wall, bc_outlet])
+    set_bc(L11, [bc_outflow_wall, bc_outlet])
     solver11.solve(L11, Us.x.petsc_vec)
     Us.x.scatter_forward()
 
     with L22.localForm() as loc:
         loc.set(0)
-    fem.petsc.assemble_vector(L22, l22)
-    fem.petsc.apply_lifting(L22, [a22], [[bc_outflow_outlet_P]])
+    assemble_vector(L22, l22)
+    apply_lifting(L22, [a22], [[bc_outflow_outlet_P]])
     L22.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
-    fem.petsc.set_bc(L22, [bc_outflow_outlet_P])
+    set_bc(L22, [bc_outflow_outlet_P])
     solver22.solve(L22, PHI.x.petsc_vec)
     PHI.x.scatter_forward()
 
-    P_.x.array[:] = P_.x.array + PHI.x.array
+    P_.x.array[:] += PHI.x.array
     P_.x.scatter_forward()
 
     with L33.localForm() as loc:
         loc.set(0)
-    fem.petsc.assemble_vector(L33, l33)
+    assemble_vector(L33, l33)
     L33.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
     solver33.solve(L33, Un.x.petsc_vec)
     Un.x.scatter_forward()
 
     Un1.x.array[:] = Un.x.array
 
-    # ===== 결과 저장 =====
+    # ===== 저장 =====
     vtx_u_in.write(t)
     vtx_p_in.write(t)
     vtx_u_out.write(t)
     vtx_p_out.write(t)
 
-    if inflow_submesh.comm.rank == 0:
-        print(f"Step {step+1}/{num_steps}, t={t:.3f}")
+    print("un array min/max:", un.x.array.min(), un.x.array.max())
+    print("Un array min/max:", Un.x.array.min(), Un.x.array.max())
+    print("NaN 있음?:", np.isnan(un.x.array).any())
+    print("NaN 있음?:", np.isnan(Un.x.array).any())
 
 vtx_u_in.close()
 vtx_p_in.close()
 vtx_u_out.close()
 vtx_p_out.close()
 
-
+print("inflow cells:", inflow_submesh.topology.index_map(inflow_submesh.topology.dim).size_global)
