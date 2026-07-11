@@ -1,5 +1,17 @@
 ## Double pipe heat exchanger
 
+
+Hot Air(1000K) flows at outer pipe.
+Carbondioxide and hydrogen mixture gas flows at inner pipe(PBR).
+
+Reaction is *Sabatier reaction*:
+
+$$
+CO_2+4H_2 \rarrow CH_4+2H_2O $$
+
+Approximate inlet gas as fuel $H_2$ gas cause can't find data of mixture gas.
+
+
 #### Index
 
 1. Proof momentum balance
@@ -28,7 +40,15 @@ Approximate density and vicosity to degree 3.
 
 ![aa](images/Airviscosity_fit.png)
 
+Do same Hydrogen gas.
 
+![a](images/hydrogendensity.png)
+
+![a](images/hydrogenviscosity.png)
+
+![a](images/hydrogencp.png)
+
+![a](images/hydrogenk.png)
 
 #### $\S$ 1.2. Calculate
 
