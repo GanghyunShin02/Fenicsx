@@ -11,12 +11,12 @@
 
 #### $\S$ 1.2. Pitting properties by CoolProp
 
-Find properties to approximate as polynomial function of Temperature.
+Find properties's polynomial function of Temperature by numpy.polyfit().
 
-From water's boiling point to critical point plot density and viscosity.
+From 300K to 1000K plot density and viscosity.
 
-![s](images/steam_density.png)
-![s](images/steam_viscosity.png)
+![s](images/Airdensity.png)
+![s](images/Airviscosity.png)
 
 
 
