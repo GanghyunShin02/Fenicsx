@@ -28,17 +28,15 @@ Approximate inlet gas as fuel $H_2$ gas cause can't find data of mixture gas.
 
 Find properties's polynomial function of Temperature by numpy.polyfit().
 
-From 300K to 1000K plot density and viscosity.
+Approximate density and vicosity to degree 3.
 
-![sa](images/Airdensity.png)
+![sa](images/Airrho.png)
 
 ![saa](images/Airviscosity.png)
 
-Approximate density and vicosity to degree 3.
+![a](images/Aircp.png)
 
-![a](images/Airdensity_fit.png)
-
-![aa](images/Airviscosity_fit.png)
+![aa](images/Airk.png)
 
 Do same Hydrogen gas.
 
