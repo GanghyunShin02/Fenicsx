@@ -7,7 +7,7 @@ Carbondioxide and hydrogen mixture gas flows at inner pipe(PBR).
 Reaction is *Sabatier reaction*:
 
 $$
-CO_2+4H_2 \rarrow CH_4+2H_2O $$
+CO_2+4H_2 \rightarrow CH_4+2H_2O $$
 
 Approximate inlet gas as fuel $H_2$ gas cause can't find data of mixture gas.
 
