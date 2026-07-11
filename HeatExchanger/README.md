@@ -15,8 +15,8 @@ Find properties's polynomial function of Temperature by numpy.polyfit().
 
 From 300K to 1000K plot density and viscosity.
 
-![s](images/Airdensity.png)
-![s](images/Airviscosity.png)
+![sa](images/Airdensity.png)
+![saa](images/Airviscosity.png)
 
 
 
