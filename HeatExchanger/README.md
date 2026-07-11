@@ -42,7 +42,7 @@ Approximate density and vicosity to degree 3.
 
 Do same Hydrogen gas.
 
-![a](images/hydrogendensity.png)
+![a](images/hydrogendenrho.png)
 
 ![a](images/hydrogenviscosity.png)
 
