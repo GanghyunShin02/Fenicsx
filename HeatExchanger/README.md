@@ -9,6 +9,9 @@ Reaction is *Sabatier reaction*:
 $$
 CO_2+4H_2 \rightarrow CH_4+2H_2O $$
 
+$$
+\Delta H=-165 kJ/mol $$
+
 Approximate inlet gas as fuel $H_2$ gas cause can't find data of mixture gas.
 
 
