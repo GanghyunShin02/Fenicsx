@@ -19,7 +19,11 @@ From 300K to 1000K plot density and viscosity.
 
 ![saa](images/Airviscosity.png)
 
+Approximate density and vicosity to degree 3.
 
+![a](images/Airdensityfit.png)
+
+![aa](images/Airviscosityfit.png)
 
 
 
