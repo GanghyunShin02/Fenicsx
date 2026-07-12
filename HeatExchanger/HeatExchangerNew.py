@@ -47,9 +47,11 @@ start=time.time()
 
 gmsh.initialize()
 
+r1, r2, r3, r4 = 1, 1.1, 2.1, 2.2
+x0, y0, z0, L = 0, 0, 2.2, 10
+
 if MPI.COMM_WORLD.rank == 0:
-    r1, r2, r3, r4 = 1, 1.1, 2.1, 2.2
-    x0, y0, z0, L = 0, 0, 2.2, 10
+
 
     c1 = gmsh.model.occ.addCylinder(x0, y0, z0, L, 0, 0, r1)
     c2 = gmsh.model.occ.addCylinder(x0, y0, z0, L, 0, 0, r2)
@@ -85,11 +87,9 @@ if MPI.COMM_WORLD.rank == 0:
     assert len(all_tags) == len(set(all_tags)), f"중복 태그: {all_tags}"
     total_volumes = len(gmsh.model.occ.getEntities(3))
     assert total_volumes == len(all_tags), f"미할당 volume 있음: total={total_volumes}, tagged={len(all_tags)}"
-    # inpipe(내관 solid)의 안쪽면/바깥면 찾기
     inpipe_boundary = gmsh.model.getBoundary(
         [(3, t) for t in inpipe], oriented=False, combined=False
     )
-    # outpipe(외관 solid)의 안쪽면/바깥면 찾기
     outpipe_boundary = gmsh.model.getBoundary(
         [(3, t) for t in outpipe], oriented=False, combined=False
     )
@@ -120,20 +120,9 @@ cell_marker=mesh_data.cell_tags
 
 gmsh.finalize()
 
-'''
-with io.XDMFFile(domain.comm, "heat_exchanger3D_geometry.xdmf", "w") as xdmf:
-    xdmf.write_mesh(domain)
-    domain.topology.create_connectivity(domain.topology.dim, domain.topology.dim)
-    xdmf.write_meshtags(cell_marker, domain.geometry)
-'''
-
-# 경계조건
-
-
 tdim = domain.topology.dim
 fdim = tdim - 1
 
-# cell_marker 태그: 1=inflow, 2=inpipe, 3=outflow, 4=outpipe
 inflow_cells  = cell_marker.find(1)
 outflow_cells = cell_marker.find(3)
 
@@ -155,12 +144,10 @@ u_zero = np.zeros(geom_dim, dtype=default_scalar_type)
 x0, y0, z0 = 0, 0, 2.2
 r1, r2, r3, r4 = 1, 1.1, 2.1, 2.2
 
-# --- inflow 벽면 조건 함수 (Darcy에서 재사용) ---
 def inflow_wall(x):
     r = np.sqrt((x[1]-y0)**2 + (x[2]-z0)**2)
     return np.isclose(r, r1, atol=1e-3)
 
-# --- outflow: 벽면은 r=r2 (outpipe 안쪽) 와 r=r3 (outpipe 바깥쪽) ---
 def outflow_inner_wall(x):
     r = np.sqrt((x[1]-y0)**2 + (x[2]-z0)**2)
     return np.isclose(r, r2, atol=1e-3)
@@ -176,14 +163,12 @@ outflow_wall_facets  = np.concatenate([outflow_inner_facets, outflow_outer_facet
 outflow_wall_dofs = locate_dofs_topological(Vu_out, fdim, outflow_wall_facets)
 bc_outflow_wall = dirichletbc(u_zero, outflow_wall_dofs, Vu_out)
 
-# --- inflow 유입 조건 함수 (Darcy에서 재사용) ---
 def inlet_face(x):
     return np.isclose(x[0], x0, atol=1e-6)
 
 U_inlet = 1
 u_inlet_val = np.array([U_inlet, 0.0, 0.0], dtype=default_scalar_type)
 
-# --- outflow 출구부 ---
 def outlet_face(x):
     return np.isclose(x[0], x0 + L, atol=1e-6)
 
@@ -194,7 +179,6 @@ U_outlet = 10
 u_outlet_val = np.array([U_outlet, 0.0, 0.0], dtype=default_scalar_type)
 bc_outlet = dirichletbc(u_outlet_val, outlet_dofs, Vu_out)
 
-# --- inflow 압력 경계조건 함수 (Darcy에서 재사용) ---
 def outlet_faceP(x):
     return np.isclose(x[0], x0 + L, atol=1e-6)
 
@@ -209,21 +193,18 @@ outflow_outlet_dofsP = locate_dofs_topological(VP_out, fdim, outflow_outlet_face
 P_outflow_outlet_val = default_scalar_type(0.0)
 bc_outflow_outlet_P = dirichletbc(P_outflow_outlet_val, outflow_outlet_dofsP, VP_out)
 
-# 초기온도
-
 V_T=functionspace(domain,("Lagrange",1))
 
-#물성치용 함수공간..?
 Q_in=functionspace(inflow_submesh,("Lagrange",1))
 Q_out=functionspace(outflow_submesh,("Lagrange",1))
 
 
 
-T_init_inpipe_fluid  = 300.0  # 내관유체 
-T_init_outpipe_fluid = 1000.0  # 외관유체
-T_init_solid = 300.0          # 관(내관+외관 solid) 전체
+T_init_inpipe_fluid  = 300.0
+T_init_outpipe_fluid = 1000.0
+T_init_solid = 300.0
 
-T_n = Function(V_T)   # 전체 domain 온도장
+T_n = Function(V_T)
 
 
 Q_T_in  = functionspace(inflow_submesh,  ("Lagrange", 1))
@@ -232,15 +213,12 @@ Q_T_out = functionspace(outflow_submesh, ("Lagrange", 1))
 T_in_local  = Function(Q_T_in)
 T_out_local = Function(Q_T_out)
 
-# 초기값 채우기 (등온 시작이므로 상수로)
 T_in_local.x.array[:]  = T_init_inpipe_fluid
 T_out_local.x.array[:] = T_init_outpipe_fluid
 T_in_local.x.scatter_forward()
 T_out_local.x.scatter_forward()
 
 
-
-# cell_marker: 1=inflow(내관유체), 2=inpipe(내관벽), 3=outflow(외관유체), 4=outpipe(외관벽)
 
 inflow_cells  = cell_marker.find(1)
 inpipe_cells  = cell_marker.find(2)
@@ -257,7 +235,7 @@ T_n.x.array[inpipe_dofs]  = T_init_solid
 T_n.x.array[outflow_dofs] = T_init_outpipe_fluid
 T_n.x.array[outpipe_dofs] = T_init_solid
 
-T_n.x.scatter_forward()  # MPI 병렬 환경 필수
+T_n.x.scatter_forward()
 
 
 rho_h2_coeffs = [-1.99223776e-10, 5.07233264e-07, -4.63186950e-04, 1.78866855e-01]
@@ -268,6 +246,7 @@ k_h2_coeffs   = [ 1.46326830e-10, -3.15425362e-07, 5.97125665e-04, 3.29720370e-0
 def rho_h2(T):
     a, b, c, d = rho_h2_coeffs
     return a*T**3 + b*T**2 + c*T + d
+    #return a*300**3 + b*300**2 + c*T + d
 
 def cp_h2(T):
     a, b, c, d = cp_h2_coeffs
@@ -304,12 +283,17 @@ def k_air(T):
 
 
 
-# 내관은 u,외관은 U
 tstep = 0.001
 dt_out = Constant(outflow_submesh, default_scalar_type(tstep))
 
-rho = Constant(inflow_submesh, default_scalar_type(float(rho_h2(300))))
-mu  = Constant(inflow_submesh, default_scalar_type(float(mu_h2(300))))
+# ===== [변경 1] rho, mu(inflow) Constant -> Function =====
+rho = Function(Q_in)
+rho.x.array[:] = rho_h2(300)
+rho.x.scatter_forward()
+
+mu = Function(Q_in)
+mu.x.array[:] = mu_h2(300)
+mu.x.scatter_forward()
 
 U  = TrialFunction(Vu_out)
 V  = TestFunction(Vu_out)
@@ -324,22 +308,21 @@ RHO = Function(Q_out)
 
 RHO.interpolate(fem.Expression(rho_air(T_out_local), Q_out.element.interpolation_points))
 
-MU = Constant(outflow_submesh, default_scalar_type(float(mu_air(500))))
+# ===== [변경 2] MU(outflow) Constant -> Function =====
+MU = Function(Q_out)
+MU.interpolate(fem.Expression(mu_air(T_out_local), Q_out.element.interpolation_points))
+
 P_   = Function(VP_out)
 PHI  = Function(VP_out)
 
 def epsilon(v):
     return sym(grad(v))
 
-# ===== Darcy-Forchheimer (내관, PBR) =====
 dp = 0.003
 pphi = 0.4
 kappa = (dp**2 * pphi**3) / (150*(1-pphi)**2)     
 betta = (1.75/dp) * ((1-pphi)/pphi**3)            
 
-# ===== Darcy-Forchheimer (내관, PBR) — 분리형(Picard) =====
-
-# 벽면/inlet/outlet BC (기존 Vu_in, VP_in 그대로 사용, mixed 없음)
 inflow_wall_facets = locate_entities_boundary(inflow_submesh, fdim, inflow_wall)
 inflow_wall_dofs   = locate_dofs_topological(Vu_in, fdim, inflow_wall_facets)
 bc_wall_darcy = dirichletbc(u_zero, inflow_wall_dofs, Vu_in)
@@ -355,7 +338,6 @@ bc_outlet_p_darcy = dirichletbc(p_outlet_val, outlet_p_dofs_darcy, VP_in)
 bcs_u_darcy = [bc_wall_darcy, bc_inlet_darcy]
 bcs_p_darcy = [bc_outlet_p_darcy]
 
-# Darcy 계수
 dp = 0.003
 pphi = 0.4
 kappa = (dp**2 * pphi**3) / (150*(1-pphi)**2)
@@ -364,20 +346,18 @@ betta = (1.75/dp) * ((1-pphi)/pphi**3)
 kappa_constant = Constant(inflow_submesh, default_scalar_type(kappa))
 betta_constant = Constant(inflow_submesh, default_scalar_type(betta))
 
-# 미지수/함수 선언
 u_d = TrialFunction(Vu_in)
 v_d = TestFunction(Vu_in)
 p_d = TrialFunction(VP_in)
 q_d = TestFunction(VP_in)
 
-u_old = Function(Vu_in)   # Picard 반복용 이전 속도 (u_mag 계산에 씀)
-u_new = Function(Vu_in)   # 이번 반복 결과
-p_darcy = Function(VP_in) # 현재 압력
-phi_darcy = Function(VP_in)  # 압력 보정량
+u_old = Function(Vu_in)
+u_new = Function(Vu_in)
+p_darcy = Function(VP_in)
+phi_darcy = Function(VP_in)
 
 u_mag_old = ufl.sqrt(ufl.dot(u_old, u_old) + 1e-10)
 
-# --- Step A: 속도 방정식 (압력은 p_darcy로 고정, u_mag는 u_old로 고정하여 선형화) ---
 F_u_darcy = (
     (mu/kappa_constant) * ufl.inner(u_d, v_d) * ufl.dx
     + (rho*betta_constant) * u_mag_old * ufl.inner(u_d, v_d) * ufl.dx
@@ -393,21 +373,18 @@ L_u_darcy = create_vector(extract_function_spaces(l_u_darcy))
 
 
 
-# --- Step B: 압력 포아송 (속도의 발산을 줄이는 보정) ---
 a_p_darcy = form(dot(grad(q_d), grad(p_d))*dx)
 l_p_darcy = form(-div(u_new)*q_d*dx)
 A_p_darcy = assemble_matrix(a_p_darcy, bcs=bcs_p_darcy)
 A_p_darcy.assemble()
 L_p_darcy = create_vector(extract_function_spaces(l_p_darcy))
 
-# --- Step C: 속도 보정 ---
 a_c_darcy = form(dot(u_d, v_d)*dx)
 l_c_darcy = form(dot(u_new, v_d)*dx - dot(grad(phi_darcy), v_d)*dx)
 A_c_darcy = assemble_matrix(a_c_darcy)
 A_c_darcy.assemble()
 L_c_darcy = create_vector(extract_function_spaces(l_c_darcy))
 
-# Solvers
 solver_u_darcy = PETSc.KSP().create(inflow_submesh.comm)
 solver_u_darcy.setType(PETSc.KSP.Type.GMRES)
 pc_u_darcy = solver_u_darcy.getPC()
@@ -426,61 +403,61 @@ solver_c_darcy.setType(PETSc.KSP.Type.CG)
 pc_c_darcy = solver_c_darcy.getPC()
 pc_c_darcy.setType(PETSc.PC.Type.SOR)
 
-# --- Picard 반복 ---
 max_picard = 30
 tol_picard = 1e-6
 
-for picard_iter in range(max_picard):
-    A_u_darcy.zeroEntries()
-    assemble_matrix(A_u_darcy, a_u_darcy, bcs=bcs_u_darcy)
-    A_u_darcy.assemble()
-    solver_u_darcy.setOperators(A_u_darcy)
+# ===== [변경 4] Darcy Picard 반복을 함수로 감싸서 매 스텝 재호출 가능하게 =====
+def solve_darcy():
+    for picard_iter in range(max_picard):
+        A_u_darcy.zeroEntries()
+        assemble_matrix(A_u_darcy, a_u_darcy, bcs=bcs_u_darcy)
+        A_u_darcy.assemble()
+        solver_u_darcy.setOperators(A_u_darcy)
 
-    with L_u_darcy.localForm() as loc:
-        loc.set(0)
-    assemble_vector(L_u_darcy, l_u_darcy)
-    apply_lifting(L_u_darcy, [a_u_darcy], [bcs_u_darcy])
-    L_u_darcy.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
-    set_bc(L_u_darcy, bcs_u_darcy)
-    solver_u_darcy.solve(L_u_darcy, u_new.x.petsc_vec)
-    u_new.x.scatter_forward()
+        with L_u_darcy.localForm() as loc:
+            loc.set(0)
+        assemble_vector(L_u_darcy, l_u_darcy)
+        apply_lifting(L_u_darcy, [a_u_darcy], [bcs_u_darcy])
+        L_u_darcy.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
+        set_bc(L_u_darcy, bcs_u_darcy)
+        solver_u_darcy.solve(L_u_darcy, u_new.x.petsc_vec)
+        u_new.x.scatter_forward()
 
-    # 압력 보정
-    with L_p_darcy.localForm() as loc:
-        loc.set(0)
-    assemble_vector(L_p_darcy, l_p_darcy)
-    apply_lifting(L_p_darcy, [a_p_darcy], [bcs_p_darcy])
-    L_p_darcy.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
-    set_bc(L_p_darcy, bcs_p_darcy)
-    solver_p_darcy.solve(L_p_darcy, phi_darcy.x.petsc_vec)
-    phi_darcy.x.scatter_forward()
+        with L_p_darcy.localForm() as loc:
+            loc.set(0)
+        assemble_vector(L_p_darcy, l_p_darcy)
+        apply_lifting(L_p_darcy, [a_p_darcy], [bcs_p_darcy])
+        L_p_darcy.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
+        set_bc(L_p_darcy, bcs_p_darcy)
+        solver_p_darcy.solve(L_p_darcy, phi_darcy.x.petsc_vec)
+        phi_darcy.x.scatter_forward()
 
-    p_darcy.x.array[:] += phi_darcy.x.array
-    p_darcy.x.scatter_forward()
+        p_darcy.x.array[:] += phi_darcy.x.array
+        p_darcy.x.scatter_forward()
 
-    # 속도 보정
-    with L_c_darcy.localForm() as loc:
-        loc.set(0)
-    assemble_vector(L_c_darcy, l_c_darcy)
-    L_c_darcy.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
-    solver_c_darcy.solve(L_c_darcy, u_new.x.petsc_vec)
-    u_new.x.scatter_forward()
+        with L_c_darcy.localForm() as loc:
+            loc.set(0)
+        assemble_vector(L_c_darcy, l_c_darcy)
+        L_c_darcy.ghostUpdate(addv=PETSc.InsertMode.ADD_VALUES, mode=PETSc.ScatterMode.REVERSE)
+        solver_c_darcy.solve(L_c_darcy, u_new.x.petsc_vec)
+        u_new.x.scatter_forward()
 
-    diff = np.abs(u_new.x.array - u_old.x.array).max()
-    print(f"Picard iter {picard_iter}: diff={diff:.6e}")
-    u_old.x.array[:] = u_new.x.array
-    u_old.x.scatter_forward()
+        diff = np.abs(u_new.x.array - u_old.x.array).max()
+        #print(f"Picard iter {picard_iter}: diff={diff:.6e}")
+        u_old.x.array[:] = u_new.x.array
+        u_old.x.scatter_forward()
 
-    if diff < tol_picard:
-        print(f"Darcy Picard 수렴 (iter={picard_iter})")
-        break
+        if diff < tol_picard:
+            print(f"Darcy Picard 수렴 (iter={picard_iter})")
+            break
+
+solve_darcy()
 
 u_result = u_new
 p_result = p_darcy
 
 print("u_result min/max:", u_result.x.array.min(), u_result.x.array.max())
 
-# ===== 온도 방정식 준비 (물성치, u_full, weak form) =====
 rho_iron = 7870.0
 k_iron_coeffs  = [1.1e-4, -0.184, 125.5]
 cp_iron_coeffs = [-3.33e-5, 0.4533, 314.0]
@@ -518,13 +495,16 @@ domain_cells_all = np.arange(domain.topology.index_map(tdim).size_local, dtype=n
 interp_data_u_in  = create_interpolation_data(Vu_full, Vu_in, domain_cells_all)
 interp_data_u_out = create_interpolation_data(Vu_full, Vu_out, domain_cells_all)
 
-# Darcy(inflow)는 정상상태이므로 한 번만 채움
 u_full.interpolate_nonmatching(u_result, domain_cells_all, interp_data_u_in)
+
+# ===== [변경 3] T_out_local interpolate 준비 (기존에 없었음) =====
+outflow_cells_local = np.arange(outflow_submesh.topology.index_map(tdim).size_local, dtype=np.int32)
+interp_data_T_out = create_interpolation_data(Q_T_out, V_T, outflow_cells_local)
 
 T = TrialFunction(V_T)
 w = TestFunction(V_T)
 
-dt_T = Constant(domain, default_scalar_type(tstep))   # outflow와 같은 tstep 공유
+dt_T = Constant(domain, default_scalar_type(tstep))
 T_theta = 0.5*T + 0.5*T_n
 
 dx_full = ufl.Measure("dx", domain=domain, subdomain_data=cell_marker)
@@ -533,6 +513,18 @@ FT = rhocp_field*inner((T-T_n)/dt_T, w)*dx_full
 FT += k_field*inner(grad(T_theta), grad(w))*dx_full
 FT += rhocp_field*inner(dot(u_full, grad(T_theta)), w)*dx_full(1)
 FT += rhocp_field*inner(dot(u_full, grad(T_theta)), w)*dx_full(3)
+
+# ===== SUPG 안정화 추가 (여기) =====
+h = ufl.CellDiameter(domain)
+Pe = ufl.sqrt(ufl.dot(u_full, u_full)) * h / (2 * k_field / rhocp_field)
+tau_supg = h / (2 * ufl.sqrt(ufl.dot(u_full, u_full)) + 1e-10)
+FT_supg = tau_supg * dot(u_full, grad(w)) * (rhocp_field*(T-T_n)/dt_T + rhocp_field*dot(u_full, grad(T_theta)) - div(k_field*grad(T_theta))) * dx_full(3)
+FT += FT_supg
+# ===== 여기까지 =====
+
+
+
+
 
 def T_inflow_inlet_marker(x):
     r = np.sqrt((x[1]-y0)**2 + (x[2]-z0)**2)
@@ -553,7 +545,6 @@ bc_T_outflow_inlet = dirichletbc(default_scalar_type(T_init_outpipe_fluid), T_ou
 bcs_T = [bc_T_inflow_inlet, bc_T_outflow_inlet]
 
 
-#반응
 rho_h2_300 = rho_h2(300)
 A_inlet = np.pi * r1**2
 U_inlet = 1.0
@@ -576,7 +567,7 @@ C_H2_init  = n_dot_H2  / Q_vol
 C_CH4_init = 0.0
 C_H2O_init = 0.0
 
-A_pre = 1.0e5
+A_pre = 1.0e2
 Ea = 66100.0
 R_gas = 8.314
 n_H2 = 0.88
@@ -595,12 +586,12 @@ Q_C = functionspace(inflow_submesh, ("Lagrange", 1))
 C_CO2_trial = TrialFunction(Q_C)
 w_C = TestFunction(Q_C)
 
-C_CO2_n = Function(Q_C)   # 이전 스텝
+C_CO2_n = Function(Q_C)
 C_H2_n  = Function(Q_C)
 C_CH4_n = Function(Q_C)
 C_H2O_n = Function(Q_C)
 
-C_CO2_new = Function(Q_C)  # 갱신될 값 (비선형이라 Picard/개별 solve로 처리)
+C_CO2_new = Function(Q_C)
 C_H2_new  = Function(Q_C)
 C_CH4_new = Function(Q_C)
 C_H2O_new = Function(Q_C)
@@ -617,7 +608,7 @@ D_H2O = Constant(inflow_submesh, default_scalar_type(4.0e-5))
 
 dt_C = Constant(inflow_submesh, default_scalar_type(tstep))
 
-C_trial = TrialFunction(Q_C)   # 4개 방정식 각각 재사용 (같은 공간이므로)
+C_trial = TrialFunction(Q_C)
 w_C = TestFunction(Q_C)
 
 r_expr = reaction_rate(T_in_local, C_H2_n, C_CO2_n)
@@ -635,11 +626,10 @@ F_H2  = species_form(C_trial, C_H2_n,  D_H2,  -4, w_C)
 F_CH4 = species_form(C_trial, C_CH4_n, D_CH4, +1, w_C)
 F_H2O = species_form(C_trial, C_H2O_n, D_H2O, +2, w_C)
 
-#경계조건
 C_CO2_inlet_dofs = locate_dofs_topological(Q_C, fdim, inlet_facets)
 bc_C_CO2_inlet = dirichletbc(default_scalar_type(C_CO2_init), C_CO2_inlet_dofs, Q_C)
 
-C_H2_inlet_dofs = locate_dofs_topological(Q_C, fdim, inlet_facets)  # 같은 facets, 같은 space
+C_H2_inlet_dofs = locate_dofs_topological(Q_C, fdim, inlet_facets)
 bc_C_H2_inlet = dirichletbc(default_scalar_type(C_H2_init), C_H2_inlet_dofs, Q_C)
 
 bc_C_CH4_inlet = dirichletbc(default_scalar_type(0.0), C_CO2_inlet_dofs, Q_C)
@@ -680,15 +670,13 @@ LT = create_vector(extract_function_spaces(lT))
 solverT = PETSc.KSP().create(domain.comm)
 solverT.setType(PETSc.KSP.Type.GMRES)
 pcT = solverT.getPC()
-pcT.setType(PETSc.PC.Type.HYPRE)
-pcT.setHYPREType("boomeramg")
+pcT.setType(PETSc.PC.Type.LU)
+# pcT.setHYPREType("boomeramg")
 
 
-# T_in_local interpolate 준비 (이전에 빠져있던 부분)
 inflow_cells_local = np.arange(inflow_submesh.topology.index_map(tdim).size_local, dtype=np.int32)
 interp_data_T_in = create_interpolation_data(Q_T_in, V_T, inflow_cells_local)
 
-# 반응속도 전체mesh 반영 준비
 Q_r_in = functionspace(inflow_submesh, ("Lagrange", 1))
 r_field_local = Function(Q_r_in)
 r_field = Function(V_T)
@@ -703,19 +691,16 @@ AT2 = create_matrix(aT2)
 LT2 = create_vector(extract_function_spaces(lT2))
 solverT.setOperators(AT2)
 
-# 출구(outlet) 위치의 dof 찾기 (내관 outlet: x=x0+L)
 outlet_marker_C = lambda x: np.isclose(x[0], x0+L, atol=1e-6)
 outlet_facets_C = locate_entities_boundary(inflow_submesh, fdim, outlet_marker_C)
 outlet_dofs_C = locate_dofs_topological(Q_C, fdim, outlet_facets_C)
 
-# 기록용 리스트
 history_t = []
 history_X_CO2 = []
 history_T_outlet = []
 history_rate = []
 
 
-# ===== outflow 유동 방정식 (기존과 동일) =====
 F11 = (RHO/dt_out)*dot((U-Un), V)*dx
 F11 += RHO*inner(dot((1.5*Un-0.5*Un1), (0.5*nabla_grad(U+Un))), V)*dx
 F11 += 2*0.5*MU*inner(epsilon(V), epsilon(U+Un))*dx
@@ -726,8 +711,8 @@ l11 = form(rhs(F11))
 A11 = create_matrix(a11)
 L11 = create_vector(extract_function_spaces(l11))
 
-a22 = form(dot(grad(Q), grad(P))*dx)
-l22 = form(-(RHO/dt_out)*dot(div(Us), Q)*dx)
+a22 = form((1/RHO)*dot(grad(Q), grad(P))*dx)
+l22 = form(-(1.0/dt_out)*dot(div(Us), Q)*dx)
 A22 = assemble_matrix(a22, bcs=[bc_outflow_outlet_P])
 A22.assemble()
 L22 = create_vector(extract_function_spaces(l22))
@@ -737,6 +722,13 @@ l33 = form(RHO*dot(Us, V)*dx - dt_out*dot(nabla_grad(PHI), V)*dx)
 A33 = assemble_matrix(a33)
 A33.assemble()
 L33 = create_vector(extract_function_spaces(l33))
+
+
+
+
+
+
+
 
 solver11 = PETSc.KSP().create(outflow_submesh.comm)
 solver11.setOperators(A11)
@@ -757,33 +749,36 @@ solver33.setType(PETSc.KSP.Type.CG)
 pc33 = solver33.getPC()
 pc33.setType(PETSc.PC.Type.SOR)
 
-# --- VTX 출력 준비 ---
-vtx_u_in  = VTXWriter(inflow_submesh.comm,  "results/7u_inflow_darcy.bp", [u_result], engine="BP4")
-vtx_p_in  = VTXWriter(inflow_submesh.comm,  "results/7p_inflow_darcy.bp", [p_result], engine="BP4")
-vtx_u_out = VTXWriter(outflow_submesh.comm, "results/7u_outflow.bp",      [Un],       engine="BP4")
-vtx_p_out = VTXWriter(outflow_submesh.comm, "results/7p_outflow.bp",      [P_],       engine="BP4")
-vtx_T     = VTXWriter(domain.comm,          "results/7T.bp",              [T_n],      engine="BP4")
+vtx_u_in  = VTXWriter(inflow_submesh.comm,  "results/10u_inflow_darcy.bp", [u_result], engine="BP4")
+vtx_p_in  = VTXWriter(inflow_submesh.comm,  "results/10p_inflow_darcy.bp", [p_result], engine="BP4")
+vtx_u_out = VTXWriter(outflow_submesh.comm, "results/10u_outflow.bp",      [Un],       engine="BP4")
+vtx_p_out = VTXWriter(outflow_submesh.comm, "results/10p_outflow.bp",      [P_],       engine="BP4")
+vtx_T     = VTXWriter(domain.comm,          "results/10T.bp",              [T_n],      engine="BP4")
 
-vtx_C_CO2 = VTXWriter(inflow_submesh.comm, "results/8C_CO2.bp", [C_CO2_n], engine="BP4")
-vtx_C_H2  = VTXWriter(inflow_submesh.comm, "results/8C_H2.bp",  [C_H2_n],  engine="BP4")
-vtx_C_CH4 = VTXWriter(inflow_submesh.comm, "results/8C_CH4.bp", [C_CH4_n], engine="BP4")
-vtx_C_H2O = VTXWriter(inflow_submesh.comm, "results/8C_H2O.bp", [C_H2O_n], engine="BP4")
+vtx_C_CO2 = VTXWriter(inflow_submesh.comm, "results/10C_CO2.bp", [C_CO2_n], engine="BP4")
+vtx_C_H2  = VTXWriter(inflow_submesh.comm, "results/10C_H2.bp",  [C_H2_n],  engine="BP4")
+vtx_C_CH4 = VTXWriter(inflow_submesh.comm, "results/10C_CH4.bp", [C_CH4_n], engine="BP4")
+vtx_C_H2O = VTXWriter(inflow_submesh.comm, "results/10C_H2O.bp", [C_H2O_n], engine="BP4")
 
 
 vtx_u_in.write(0.0)
 vtx_p_in.write(0.0)
 vtx_T.write(0.0)
 
-# ===== 통합 시간 루프: outflow 유동 + 온도 같이 =====
 t = 0.0
-T_end = 0.01
+T_end = 60
 num_steps = int(T_end / tstep)
+
+
+
+print("T_outflow_inlet_dofs count:", len(T_outflow_inlet_dofs))
+
 
 for step in range(num_steps):
     t += tstep
-    print(f'{100*step/num_steps:.1f}% 완료, t={t:.4f}')
+    if MPI.COMM_WORLD.rank==0: 
+        print(f'{100*step/num_steps:.1f}% 완료, t={t:.4f}')
 
-    # --- outflow 유동 (IPCS Step1,2,3) ---
     A11.zeroEntries()
     assemble_matrix(A11, a11, bcs=[bc_outflow_wall, bc_outlet])
     A11.assemble()
@@ -797,6 +792,12 @@ for step in range(num_steps):
     solver11.solve(L11, Us.x.petsc_vec)
     Us.x.scatter_forward()
 
+    # ===== [추가] A22 매 스텝 재조립 (RHO가 바뀌므로 1/RHO 항도 재계산 필요) =====
+    A22.zeroEntries()
+    assemble_matrix(A22, a22, bcs=[bc_outflow_outlet_P])
+    A22.assemble()
+    solver22.setOperators(A22)
+
     with L22.localForm() as loc:
         loc.set(0)
     assemble_vector(L22, l22)
@@ -809,6 +810,12 @@ for step in range(num_steps):
     P_.x.array[:] += PHI.x.array
     P_.x.scatter_forward()
 
+    # ===== [추가] A33도 RHO 변경 시 재조립 필요 =====
+    A33.zeroEntries()
+    assemble_matrix(A33, a33)
+    A33.assemble()
+    solver33.setOperators(A33)
+
     with L33.localForm() as loc:
         loc.set(0)
     assemble_vector(L33, l33)
@@ -818,11 +825,32 @@ for step in range(num_steps):
 
     Un1.x.array[:] = Un.x.array
 
-    # --- u_full 갱신 (outflow만, inflow는 정상상태라 고정) ---
     u_full.interpolate_nonmatching(Un, domain_cells_all, interp_data_u_out)
     u_full.x.scatter_forward()
 
-    # --- 온도 방정식 ---
+    T_out_local.interpolate_nonmatching(T_n, outflow_cells_local, interp_data_T_out)
+    T_out_local.x.scatter_forward()
+
+
+    # ===== 여기에 추가 =====
+    if MPI.COMM_WORLD.rank==0:
+        min_idx = np.argmin(T_out_local.x.array)
+        coords = Q_T_out.tabulate_dof_coordinates()
+        print("최저온도 위치:", coords[min_idx])
+        print("최저온도 값:", T_out_local.x.array[min_idx])
+    # ===== 여기까지 =====
+
+
+
+    rho.interpolate(fem.Expression(rho_h2(T_in_local), Q_in.element.interpolation_points))
+    mu.interpolate(fem.Expression(mu_h2(T_in_local), Q_in.element.interpolation_points))
+    RHO.interpolate(fem.Expression(rho_air(T_out_local), Q_out.element.interpolation_points))
+    MU.interpolate(fem.Expression(mu_air(T_out_local), Q_out.element.interpolation_points))
+
+    solve_darcy()
+    u_full.interpolate_nonmatching(u_result, domain_cells_all, interp_data_u_in)
+    u_full.x.scatter_forward()
+
     AT.zeroEntries()
     assemble_matrix(AT, aT, bcs=bcs_T)
     AT.assemble()
@@ -837,22 +865,21 @@ for step in range(num_steps):
     solverT.solve(LT, T_n.x.petsc_vec)
     T_n.x.scatter_forward()
 
-    # --- 저장 ---
+    T_in_local.interpolate_nonmatching(T_n, inflow_cells_local, interp_data_T_in)
+    T_in_local.x.scatter_forward()
+
     vtx_u_out.write(t)
     vtx_p_out.write(t)
     vtx_T.write(t)
 
-# ===== 전환율, 출구온도 기록 =====
     C_CO2_outlet_avg = C_CO2_n.x.array[outlet_dofs_C].mean() if len(outlet_dofs_C) > 0 else np.nan
     X_CO2_now = (C_CO2_init - C_CO2_outlet_avg) / C_CO2_init
 
-    # 출구 온도 (전체 mesh 기준, 내관유체 x=x0+L 근처)
     T_outlet_dofs = locate_dofs_topological(V_T, fdim,
         locate_entities_boundary(domain, fdim,
             lambda x: np.isclose(x[0], x0+L, atol=1e-6) & (np.sqrt((x[1]-y0)**2+(x[2]-z0)**2) < r1)))
     T_outlet_avg = T_n.x.array[T_outlet_dofs].mean() if len(T_outlet_dofs) > 0 else np.nan
 
-    # 평균 반응속도 (Levenspiel plot용)
     rate_avg = r_field_local.x.array.mean()
 
     history_t.append(t)
@@ -860,12 +887,15 @@ for step in range(num_steps):
     history_T_outlet.append(T_outlet_avg)
     history_rate.append(rate_avg)
 
-    print(f"X_CO2={X_CO2_now:.4f}  T_outlet={T_outlet_avg:.2f}")
+    if MPI.COMM_WORLD.rank==0:
+        print(f"X_CO2={X_CO2_now:.4f}  T_outlet={T_outlet_avg:.2f}")
+        print("RHO min/max:", RHO.x.array.min(), RHO.x.array.max())
+        print("MU min/max:", MU.x.array.min(), MU.x.array.max())
+        print("T_out_local min/max:", T_out_local.x.array.min(), T_out_local.x.array.max())
+        print("Un min/max:", Un.x.array.min(), Un.x.array.max())
+        print("T_n min/max:", T_n.x.array.min(), T_n.x.array.max())
+        print("NaN(Un):", np.isnan(Un.x.array).any(), " NaN(T_n):", np.isnan(T_n.x.array).any())
 
-
-    print("Un min/max:", Un.x.array.min(), Un.x.array.max())
-    print("T_n min/max:", T_n.x.array.min(), T_n.x.array.max())
-    print("NaN(Un):", np.isnan(Un.x.array).any(), " NaN(T_n):", np.isnan(T_n.x.array).any())
 
 vtx_u_in.close()
 vtx_p_in.close()
@@ -873,177 +903,85 @@ vtx_u_out.close()
 vtx_p_out.close()
 vtx_T.close()
 
-print("inflow cells:", inflow_submesh.topology.index_map(inflow_submesh.topology.dim).size_global)
-
-# T_n의 모든 dof 좌표 가져오기
-T_dof_coords = V_T.tabulate_dof_coordinates()
-
-def get_avg_T_at_x_bin(x_target, x_tol, r_min, r_max):
-    x_coords = T_dof_coords[:, 0]
-    y_coords = T_dof_coords[:, 1]
-    z_coords = T_dof_coords[:, 2]
-    r = np.sqrt((y_coords - y0)**2 + (z_coords - z0)**2)
-
-    mask = (np.abs(x_coords - x_target) < x_tol) & (r >= r_min) & (r <= r_max)
-    if mask.sum() == 0:
-        return np.nan
-    return T_n.x.array[mask].mean()
-
-n_points = 50
-x_samples = np.linspace(x0, x0+L, n_points)
-x_tol = L / n_points  # 구간 폭
-
-T_inflow_profile  = [get_avg_T_at_x_bin(x, x_tol, 0, r1*0.9) for x in x_samples]
-T_outflow_profile = [get_avg_T_at_x_bin(x, x_tol, r2*1.05, r3*0.95) for x in x_samples]
-
-plt.figure(figsize=(8,5))
-plt.plot(x_samples, T_inflow_profile, 'r-', linewidth=2, label='Inner tube fluid (H2)')
-plt.plot(x_samples, T_outflow_profile, 'b-', linewidth=2, label='Outer tube fluid (Air)')
-plt.xlabel('Tube length (m)')
-plt.ylabel('Temperature (K)')
-plt.title(f'Counter-current Heat Exchanger Temperature Profile (t={t:.3f}s)')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.savefig('temperature_profile.png', dpi=150)
-print("Saved: temperature_profile.png")
-
-# Move outside the loop (preparation stage)
-T_outlet_facets = locate_entities_boundary(domain, fdim,
-    lambda x: np.isclose(x[0], x0+L, atol=1e-6) & (np.sqrt((x[1]-y0)**2+(x[2]-z0)**2) < r1))
-T_outlet_dofs = locate_dofs_topological(V_T, fdim, T_outlet_facets)
-
-history_t = np.array(history_t)
-history_X_CO2 = np.array(history_X_CO2)
-history_T_outlet = np.array(history_T_outlet)
-history_rate = np.array(history_rate)
-
-# 1. Conversion vs time, Temperature vs time
-fig, axes = plt.subplots(1, 2, figsize=(12,5))
-axes[0].plot(history_t, history_X_CO2, 'g-', linewidth=2)
-axes[0].set_xlabel('Time (s)')
-axes[0].set_ylabel('CO2 Conversion')
-axes[0].set_title('Conversion vs Time')
-axes[0].grid(True, alpha=0.3)
-
-axes[1].plot(history_t, history_T_outlet, 'r-', linewidth=2)
-axes[1].set_xlabel('Time (s)')
-axes[1].set_ylabel('Outlet Temperature (K)')
-axes[1].set_title('Outlet Temperature vs Time')
-axes[1].grid(True, alpha=0.3)
-plt.tight_layout()
-plt.savefig('conversion_temperature_vs_time.png', dpi=150)
-
-# 2. Conversion vs Temperature
-plt.figure(figsize=(7,5))
-plt.plot(history_X_CO2, history_T_outlet, 'b.-')
-plt.xlabel('CO2 Conversion')
-plt.ylabel('Outlet Temperature (K)')
-plt.title('Conversion vs Temperature')
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.savefig('conversion_vs_temperature.png', dpi=150)
-
-# 3. Levenspiel plot (X vs 1/-r_A)
-valid = history_rate > 1e-15  # avoid division by zero
-plt.figure(figsize=(7,5))
-plt.plot(history_X_CO2[valid], 1.0/history_rate[valid], 'k.-')
-plt.xlabel('CO2 Conversion (X)')
-plt.ylabel('1/(-r_CO2)  [m^3*s/mol]')
-plt.title('Levenspiel Plot')
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.savefig('levenspiel_plot.png', dpi=150)
-
-print("All plots saved")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+if MPI.COMM_WORLD.rank==0:
+    print("inflow cells:", inflow_submesh.topology.index_map(inflow_submesh.topology.dim).size_global)
+
+    T_dof_coords = V_T.tabulate_dof_coordinates()
+
+    def get_avg_T_at_x_bin(x_target, x_tol, r_min, r_max):
+        x_coords = T_dof_coords[:, 0]
+        y_coords = T_dof_coords[:, 1]
+        z_coords = T_dof_coords[:, 2]
+        r = np.sqrt((y_coords - y0)**2 + (z_coords - z0)**2)
+
+        mask = (np.abs(x_coords - x_target) < x_tol) & (r >= r_min) & (r <= r_max)
+        if mask.sum() == 0:
+            return np.nan
+        return T_n.x.array[mask].mean()
+
+    n_points = 50
+    x_samples = np.linspace(x0, x0+L, n_points)
+    x_tol = L / n_points
+
+    T_inflow_profile  = [get_avg_T_at_x_bin(x, x_tol, 0, r1*0.9) for x in x_samples]
+    T_outflow_profile = [get_avg_T_at_x_bin(x, x_tol, r2*1.05, r3*0.95) for x in x_samples]
+
+    plt.figure(figsize=(8,5))
+    plt.plot(x_samples, T_inflow_profile, 'r-', linewidth=2, label='Inner tube fluid (H2)')
+    plt.plot(x_samples, T_outflow_profile, 'b-', linewidth=2, label='Outer tube fluid (Air)')
+    plt.xlabel('Tube length (m)')
+    plt.ylabel('Temperature (K)')
+    plt.title(f'Counter-current Heat Exchanger Temperature Profile (t={t:.3f}s)')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('temperature_profile.png', dpi=150)
+    print("Saved: temperature_profile.png")
+
+    T_outlet_facets = locate_entities_boundary(domain, fdim,
+        lambda x: np.isclose(x[0], x0+L, atol=1e-6) & (np.sqrt((x[1]-y0)**2+(x[2]-z0)**2) < r1))
+    T_outlet_dofs = locate_dofs_topological(V_T, fdim, T_outlet_facets)
+
+    history_t = np.array(history_t)
+    history_X_CO2 = np.array(history_X_CO2)
+    history_T_outlet = np.array(history_T_outlet)
+    history_rate = np.array(history_rate)
+
+    fig, axes = plt.subplots(1, 2, figsize=(12,5))
+    axes[0].plot(history_t, history_X_CO2, 'g-', linewidth=2)
+    axes[0].set_xlabel('Time (s)')
+    axes[0].set_ylabel('CO2 Conversion')
+    axes[0].set_title('Conversion vs Time')
+    axes[0].grid(True, alpha=0.3)
+
+    axes[1].plot(history_t, history_T_outlet, 'r-', linewidth=2)
+    axes[1].set_xlabel('Time (s)')
+    axes[1].set_ylabel('Outlet Temperature (K)')
+    axes[1].set_title('Outlet Temperature vs Time')
+    axes[1].grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('conversion_temperature_vs_time.png', dpi=150)
+
+    plt.figure(figsize=(7,5))
+    plt.plot(history_X_CO2, history_T_outlet, 'b.-')
+    plt.xlabel('CO2 Conversion')
+    plt.ylabel('Outlet Temperature (K)')
+    plt.title('Conversion vs Temperature')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('conversion_vs_temperature.png', dpi=150)
+
+    valid = history_rate > 1e-15
+    plt.figure(figsize=(7,5))
+    plt.plot(history_X_CO2[valid], 1.0/history_rate[valid], 'k.-')
+    plt.xlabel('CO2 Conversion (X)')
+    plt.ylabel('1/(-r_CO2)  [m^3*s/mol]')
+    plt.title('Levenspiel Plot')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig('levenspiel_plot.png', dpi=150)
+
+    print("All plots saved")
 
 
 
