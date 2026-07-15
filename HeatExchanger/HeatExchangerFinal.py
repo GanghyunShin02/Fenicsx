@@ -172,7 +172,7 @@ def outlet_face(x):
 outlet_facets = locate_entities_boundary(outflow_submesh, fdim, outlet_face)
 outlet_dofs   = locate_dofs_topological(Vu_out, fdim, outlet_facets)
 
-U_outlet = 0.1
+U_outlet = -0.1
 u_outlet_val = np.array([U_outlet, 0.0, 0.0], dtype=default_scalar_type)
 bc_outlet = dirichletbc(u_outlet_val, outlet_dofs, Vu_out)
 
@@ -252,7 +252,7 @@ kAir=Constant(outflow_submesh,default_scalar_type(0.0676771187675638))
 #수소
 rho=Constant(inflow_submesh,default_scalar_type(0.024561837963520933))
 mu=Constant(inflow_submesh,default_scalar_type(2.0725536710106445e-05))
-cpH2=Constant(inflow_submesh,default_scalar_type(114991.855835683164))
+cpH2=Constant(inflow_submesh,default_scalar_type(14991.855835683164))
 kH2=Constant(inflow_submesh,default_scalar_type(0.46038730633793423))
 
 
@@ -321,7 +321,6 @@ l_u_darcy = form(rhs(F_u_darcy))
 
 A_u_darcy = create_matrix(a_u_darcy)
 L_u_darcy = create_vector(extract_function_spaces(l_u_darcy))
-
 
 
 a_p_darcy = form(dot(grad(q_d), grad(p_d))*dx)
@@ -467,6 +466,12 @@ u_mag_safe = ufl.max_value(u_mag_raw, 1e-3)   # tau 계산 전용 하한선
 
 tau_supg = h / (2 * u_mag_safe)
 
+# ===== SUPG 안정화 항 =====
+R_T = rhocp_field*(T - T_n)/dt_T + rhocp_field*dot(u_full, grad(T_theta))
+
+FT += tau_supg * dot(u_full, grad(w)) * R_T * dx_full(1)
+FT += tau_supg * dot(u_full, grad(w)) * R_T * dx_full(3)
+
 def T_inflow_inlet_marker(x):
     r = np.sqrt((x[1]-y0)**2 + (x[2]-z0)**2)
     return np.isclose(x[0], x0, atol=1e-6) & (r < r1)
@@ -484,7 +489,6 @@ T_outflow_inlet_dofs = locate_dofs_topological(V_T, fdim, T_outflow_inlet_facets
 bc_T_outflow_inlet = dirichletbc(default_scalar_type(T_init_outpipe_fluid), T_outflow_inlet_dofs, V_T)
 
 bcs_T = [bc_T_inflow_inlet, bc_T_outflow_inlet]
-
 
 
 A_inlet = np.pi * r1**2
@@ -700,7 +704,7 @@ vtx_p_in.write(0.0)
 vtx_T.write(0.0)
 
 t = 0.0
-T_end = 0.05
+T_end = 60
 num_steps = int(T_end / tstep)
 
 print("T_outflow_inlet_dofs count:", len(T_outflow_inlet_dofs))
@@ -741,9 +745,9 @@ for step in range(num_steps):
     solver11.solve(L11, Us.x.petsc_vec)
     Us.x.scatter_forward()
 
-    print('1단계직후')
-    print("Us min/max:", Us.x.array.min(), Us.x.array.max())
-    print("PHI min/max:", PHI.x.array.min(), PHI.x.array.max())
+    #print('1단계직후')
+    #print("Us min/max:", Us.x.array.min(), Us.x.array.max())
+    #print("PHI min/max:", PHI.x.array.min(), PHI.x.array.max())
     # ===== Step2: 압력 보정 (복원 필요) =====
     with L22.localForm() as loc:
         loc.set(0)
@@ -757,9 +761,9 @@ for step in range(num_steps):
     P_.x.array[:] += PHI.x.array
     P_.x.scatter_forward()
 
-    print('2단계직후')
-    print("Us min/max:", Us.x.array.min(), Us.x.array.max())
-    print("PHI min/max:", PHI.x.array.min(), PHI.x.array.max())
+    #print('2단계직후')
+    #print("Us min/max:", Us.x.array.min(), Us.x.array.max())
+    #print("PHI min/max:", PHI.x.array.min(), PHI.x.array.max())
 
     # ===== Step3: 속도 보정 (복원 필요) =====
     with L33.localForm() as loc:
@@ -769,9 +773,9 @@ for step in range(num_steps):
     solver33.solve(L33, Un.x.petsc_vec)
     Un.x.scatter_forward()
 
-    print('3단계직후')
-    print("Us min/max:", Us.x.array.min(), Us.x.array.max())
-    print("PHI min/max:", PHI.x.array.min(), PHI.x.array.max())
+    #print('3단계직후')
+    #print("Us min/max:", Us.x.array.min(), Us.x.array.max())
+    #print("PHI min/max:", PHI.x.array.min(), PHI.x.array.max())
 
 
     u_full.interpolate_nonmatching(Un, domain_cells_all, interp_data_u_out)
@@ -968,8 +972,6 @@ if MPI.COMM_WORLD.rank==0:
     
 
     print("All plots saved")
-
-
 
 
 end=time.time()
