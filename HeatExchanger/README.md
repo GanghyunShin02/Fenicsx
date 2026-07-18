@@ -27,11 +27,11 @@ Approximate inlet gas as fuel $H_2$ gas cause can't find data of mixture gas.
 ![ss](images/3Dmesh.png)
 
 
-#### $\S$ 1.2. Pitting properties by CoolProp
+#### ~~$\S$ 1.2. Pitting properties by CoolProp~~
 
-Find properties's polynomial function of Temperature by numpy.polyfit().
+~~Find properties's polynomial function of Temperature by numpy.polyfit().~~
 
-Approximate density and vicosity to degree 3.
+~~Approximate density and vicosity to degree 3.~~
 
 ![sa](images/Airrho.png)
 
@@ -41,7 +41,7 @@ Approximate density and vicosity to degree 3.
 
 ![aa](images/Airk.png)
 
-Do same Hydrogen gas.
+~~Do same Hydrogen gas.~~
 
 ![a](images/hydrogenrho.png)
 
@@ -62,7 +62,8 @@ $$
 Crank-Nicolson discretization for calculate.
 
 $$
-\rho \left(\frac{u^{*} -u^n}{\delta t}+\left(\frac{3}{2} u^n -\frac{1}{2} u^{n-1}\right)\cdot \frac{1}{2}\nabla (u^{*}+u^n)\right)-\frac{1}{2}\mu \nabla^2 (u^{*}+u^n)+\nabla P^{\frac{n-1}{2}}=0 $$
+\rho \left(\frac{u^{*} -u^n}{\delta t}+\left(\frac{3}{2} u^n -\frac{1}{2} u^{n-1}\right)\cdot \frac{1}{2}\nabla (u^{*}+u^n)\right)-\frac{1}{2}\mu \nabla^2 (u^{*}+u^n)+\nabla P^{\frac{n-1}{2}}=0 
+$$
 
 
 #### $\S$ 
