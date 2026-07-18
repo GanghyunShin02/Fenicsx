@@ -53,9 +53,10 @@ $\S$ 3. Proof mass balace
 
 ![a](images/hydrogenk.png)
 
-#### $\S$ 1.2. Calculate
+#### $\S$ 1.2. Outer Pipe
 
-N-S equation (No gravity effect)
+
+Proof N-S equation (No gravity effect) at outer pipe's Air.
 
 $$
 \rho \frac{\partial u}{\partial t}+\rho (u \cdot \nabla )u=-\nabla P +\mu \nabla ^2 u  
@@ -68,4 +69,27 @@ $$
 $$
 
 
-#### $\S$ 
+#### $\S$ 1.3 inner Pipe
+
+Inner pipe flow is packed bed so flow is Darcy flow.
+
+$$
+-\nabla P=\frac{\mu}{\kappa}u+\beta |u|u $$
+
+$$
+\frac{1}{\kappa}=\frac{150(1-\phi)^2}{\phi ^3} $$
+
+Origined by Ergun equation.
+
+
+#### $\S$ 2.1 Heat equation with reaction heat
+
+$$
+\rho c_p (\frac{\partial T}{\partial t}+u\nabla T)=k \nabla ^2 T + S $$
+
+$$
+S=\Delta H_j C_j $$
+
+
+
+
