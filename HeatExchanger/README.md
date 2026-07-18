@@ -17,9 +17,11 @@ Approximate inlet gas as fuel $H_2$ gas cause can't find data of mixture gas.
 
 #### Index
 
-1. Proof momentum balance
-2. Proof energy balacne
-3. Proof mass balace
+$\S$ 1. Proof momentum balance
+
+$\S$ 2. Proof energy balacne
+
+$\S$ 3. Proof mass balace
 
 
 #### $\S$ 1.1. Create domain
